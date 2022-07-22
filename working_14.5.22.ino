@@ -1,0 +1,234 @@
+
+#define BLYNK_PRINT Serial
+
+/* Fill-in your Template ID (only if using Blynk.Cloud) */
+#define BLYNK_TEMPLATE_ID "TMPL3bB-I6lX"
+#define BLYNK_DEVICE_NAME "temperature and humidity monitor"
+
+#if defined(ESP32)
+#include <WiFi.h>
+#include <FirebaseESP32.h>
+#elif defined(ESP8266)
+#include <ESP8266WiFi.h>
+#include <FirebaseESP8266.h>
+#endif
+#include <BlynkSimpleEsp8266.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// You should get Auth Token in the Blynk App.
+// Go to the Project Settings (nut icon).
+char authe[] = "wKEKa-17j8-S4G8IrRyWBqlvQ90Ll9Vh";
+// Your WiFi credentials.
+// Set password to "" for open networks.
+char ssid[] = "Unknown Pie";
+char pass[] = "vengat29";
+
+//Provide the token generation process info.
+#include <addons/TokenHelper.h>
+
+//Provide the RTDB payload printing info and other helper functions.
+#include <addons/RTDBHelper.h>
+
+#define DHTPIN 14     // Digital pin connected to the DHT sensor
+#define DHTTYPE DHT11   // DHT 11
+
+
+#define WIFI_SSID "Unknown Pie"
+#define WIFI_PASSWORD "vengat29"
+
+/* 2. Define the API Key */
+#define API_KEY "AIzaSyBvDN9q36aAN-8JD6Gy2clpjqB8PHIMCbI"
+
+/* 3. Define the RTDB URL */
+#define DATABASE_URL "https://temperature34-5486a-default-rtdb.asia-southeast1.firebasedatabase.app/" //<databaseName>.firebaseio.com or <databaseName>.<region>.firebasedatabase.app
+
+/* 4. Define the user Email and password that alreadey registerd or added in your project */
+#define USER_EMAIL "mcetproject309@gmail.com"
+#define USER_PASSWORD "Aandavar@309"
+
+//Define Firebase Data object
+FirebaseData fbdo;
+
+FirebaseAuth auth;
+FirebaseConfig config;
+
+unsigned long sendDataPrevMillis = 0;
+unsigned long count = 0;
+
+DHT dht(DHTPIN, DHTTYPE);
+BlynkTimer timer;
+int relayPin = D7;
+
+void sendSensor()
+{
+  float Humidity = dht.readHumidity();
+  float Temperature = dht.readTemperature(); // or dht.readTemperature(true) for Fahrenheit
+ 
+  if (isnan(Humidity) || isnan(Temperature)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+  // You can send any value at any time.
+  // Please don't send more that 10 values per second.
+  Blynk.virtualWrite(V1, Temperature);
+  Blynk.virtualWrite(V2, Humidity);
+
+ 
+
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  dht.begin();
+ pinMode(DHTPIN, INPUT);
+  pinMode(relayPin, OUTPUT);
+
+  
+  Blynk.begin(authe, ssid, pass);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+   Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.print(".");
+    delay(300);
+  }
+  Serial.println();
+  Serial.print("Wifi Connected with IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println();
+
+  Serial.printf("Firebase Client v%s\n\n", FIREBASE_CLIENT_VERSION);
+
+  /* Assign the api key (required) */
+  config.api_key = API_KEY;
+
+  /* Assign the user sign in credentials */
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASSWORD;
+
+  /* Assign the RTDB URL (required) */
+  config.database_url = DATABASE_URL;
+
+  /* Assign the callback function for the long running token generation task */
+  config.token_status_callback = tokenStatusCallback; //see addons/TokenHelper.h
+
+  Firebase.begin(&config, &auth);
+
+  //Comment or pass false value when WiFi reconnection will control by your code or third party library
+  Firebase.reconnectWiFi(true);
+
+  Firebase.setDoubleDigits(5);
+  timer.setInterval(1000L, sendSensor);
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+  delay(2000);
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+
+}
+
+void loop() {
+  delay(5000);
+
+  //read temperature and humidity
+  float Temperature = dht.readTemperature();
+  float Humidity = dht.readHumidity();
+
+  
+  
+  if (isnan(Humidity) || isnan(Temperature)) {
+    Serial.println("Failed to read from DHT sensor!");
+  }
+  // clear display
+  display.clearDisplay();
+  
+  // display temperature
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.print("Temperature: ");
+  display.setTextSize(2);
+  display.setCursor(0,10);
+  display.print(Temperature);
+  display.print(" ");
+  display.setTextSize(1);
+  display.cp437(true);
+  display.write(167);
+  display.setTextSize(2);
+  display.print("C");
+  
+  // display humidity
+  display.setTextSize(1);
+  display.setCursor(0, 35);
+  display.print("Humidity: ");
+  display.setTextSize(2);
+  display.setCursor(0, 45);
+  display.print(Humidity);
+  display.print(" %"); 
+  
+  display.display(); 
+  
+  Blynk.run();
+  timer.run();
+
+  if (Firebase.ready() && (millis() - sendDataPrevMillis > 15000 || sendDataPrevMillis == 0))
+  {
+    sendDataPrevMillis = millis();
+    Serial.printf("Set Temperature... %s\n", Firebase.setFloat(fbdo, F("/test/temperature"), Temperature) ? "ok" : fbdo.errorReason().c_str());
+
+    Serial.printf("Get Temperature... %s\n", Firebase.getFloat(fbdo, F("/test/temperature")) ? String(fbdo.to<float>()).c_str() : fbdo.errorReason().c_str());
+
+    Serial.printf("Set Humidity... %s\n", Firebase.setDouble(fbdo, F("/test/humidity"), Humidity) ? "ok" : fbdo.errorReason().c_str());
+
+    Serial.printf("Get Humidity... %s\n", Firebase.getDouble(fbdo, F("/test/humidity")) ? String(fbdo.to<double>()).c_str() : fbdo.errorReason().c_str());
+
+     
+    FirebaseJson json;
+
+    if (count == 0)
+    {
+      json.set("value/round/" + String(count), F("cool!"));
+      json.set(F("vaue/ts/.sv"), F("timestamp"));
+      Serial.printf("Set json... %s\n", Firebase.set(fbdo, F("/test/json"), json) ? "ok" : fbdo.errorReason().c_str());
+    }
+    else
+    {
+      json.add(String(count), "smart!");
+      Serial.printf("Update node... %s\n", Firebase.updateNode(fbdo, F("/test/json/value/round"), json) ? "ok" : fbdo.errorReason().c_str());
+    }
+    
+    Serial.println();
+
+
+    count++;
+  }
+    float val = dht.readTemperature();
+   
+   
+    if (val > 30)
+    {
+      Serial.println("FAN ON");
+      digitalWrite(relayPin, LOW); // Cooling Fan ON
+      delay(1000);
+    }
+    else
+    {
+      Serial.println("FAN OFF");
+      digitalWrite(relayPin, HIGH); // Cooling Fan OFF
+      delay(1000);
+    }
+    delay(5000);
+}
